@@ -4,6 +4,8 @@ var AuthDetails = require('./auth.json');
 var MongoClient = require('mongodb').MongoClient;
 var mongoUrl = AuthDetails.mongoUrl;
 var db = null;
+var buys = null;
+var sells = null;
 
 var VALID_ITEM_TYPES = ['decal', 'wheels', 'body', 'topper', 'antenna', 'boost'];
 var VALID_PRICE = ['keys', 'cc1', 'cc2'];
@@ -14,6 +16,8 @@ MongoClient.connect(mongoUrl, function(err, dbconnected) {
     } else {
         console.log('Mongo connected!');
         db = dbconnected;
+        buys = db.collection("Buys");
+        sells = db.collection("Sells");
     }
 });
 
