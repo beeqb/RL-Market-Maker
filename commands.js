@@ -1,10 +1,16 @@
 var Config = require('./config.json');
+var _ = require('lodash');
+
+var VALID_ITEM_TYPES = ['Decal', 'Wheels', 'Body', 'Topper', 'Antenna', 'Boost'];
+var VALID_PRICE = ['Keys', 'CC1', 'CC2'];
+
+
 var commands = {
     "sell" : {
         usage:"<item>, <item type>, <asking price>, [OPTIONAL] <comma-separated item modifiers>",
         description: "Puts an item for sale. Sale offer expires in " + Config.expiryString + ".\n" + 
                      "Use the base item name for the <item> field.\n" +
-                     "Item type is one of [Decal, Wheels, Body, Topper, Antenna, Boost]\n" +
+                     `Item type is one of ${VALID_ITEM_TYPES}\n` +
                      "The asking price must be either Keys, CC1, CC2.\n" +
                      "Item modifiers are colors & certifications (not strictly enforced).\n" + 
                      "Example commands:\n" +
@@ -12,6 +18,16 @@ var commands = {
                      "!sell Dominus GT, Body, 3 CC1",
         process: function(bot, msg, args) {
             // Parse options
+            const argsAsArray = getArgsAsArrayAndCheck(args, 3);
+            if (!argsAsArray) {
+              // Send unexpected command message
+            }
+
+            const [item, itemType, askingPrice, ...modifiers] = argsAsArray;
+
+            const isValidSale = isValidItemType(itemType) && isValidPrice(askingPrice);
+
+
             // If valid, add to selling registry
         }
     },
@@ -101,6 +117,27 @@ var commands = {
             // Send list of all sales orders with seller ID matching messenger
         }
     }
+}
+
+function getArgsAsArray(args) {
+	return args && _.split(args, ", ");
+}
+
+function getArgsAsArrayAndCheck(args, min, max) {
+  const argsAsArray = getArgsAsArray(args);
+  if (!argsAsArray || (min != null && argsAsArray.length < min) || (max != null && argsAsArray.length > max)) {
+    return false;
+  }
+
+  return argsAsArray;
+}
+
+function isValidItemType(itemType) {
+  return _.includes(VALID_ITEM_TYPES, itemType);
+}
+
+function isValidPrice(price) {
+  return _.includes(VALID_PRICE, price);
 }
 
 module.exports = commands;

@@ -1,10 +1,11 @@
 {
-    "name": "Rocket League Market Maker",
-    "description": "Create market for rocket league items",
-    "author": "Drew Tyler",
-    "version": "1.0.0",
-    "dependencies": {
-        "discord.js":"latest",
-        "mongodb":"latest"
-    }
+  "name": "Rocket League Market Maker",
+  "description": "Create market for rocket league items",
+  "author": "Drew Tyler",
+  "version": "1.0.0",
+  "dependencies": {
+    "discord.js": "latest",
+    "lodash": "^4.16.1",
+    "mongodb": "latest"
+  }
 }
