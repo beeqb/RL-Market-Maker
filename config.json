@@ -1,0 +1,6 @@
+{
+    "expiryString":"one hour",
+    "expiryTime":3600000,
+    "CommandPrefix": "!",
+    "debug":false
+}
