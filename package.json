@@ -1,0 +1,10 @@
+{
+    "name": "Rocket League Market Maker",
+    "description": "Create market for rocket league items",
+    "author": "Drew Tyler",
+    "version": "1.0.0",
+    "dependencies": {
+        "discord.js":"latest",
+        "mongodb":"latest"
+    }
+}
