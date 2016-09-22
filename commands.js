@@ -4,8 +4,8 @@ var AuthDetails = require('./auth.json');
 var MongoClient = require('mongodb').MongoClient;
 var mongoUrl = AuthDetails.mongoUrl;
 
-var VALID_ITEM_TYPES = ['Decal', 'Wheels', 'Body', 'Topper', 'Antenna', 'Boost'];
-var VALID_PRICE = ['Keys', 'CC1', 'CC2'];
+var VALID_ITEM_TYPES = ['decal', 'wheels', 'body', 'topper', 'antenna', 'boost'];
+var VALID_PRICE = ['keys', 'cc1', 'cc2'];
 
 MongoClient.connect(mongoUrl, function(err, db) {
     if(err) {
@@ -14,6 +14,13 @@ MongoClient.connect(mongoUrl, function(err, db) {
         console.log('Mongo connected!');
     }
 });
+
+function handleBadCommand(msg, cmdName, args) {
+    msg.channel.sendMessage("Sorry, your arguments (" + args + ") to " + cmdName + " were not valid. Type !help " + cmdName + " for more info.")
+    .then(function(message) {
+        message.delete(10000);
+    }) ;
+}
 
 var commands = {
     "sell" : {
@@ -60,7 +67,11 @@ var commands = {
         usage: "<item>, <item type>",
         description: "Lists all items for sale & purchase orders that match the <item> and <item type>",
         process: function(bot, msg, args) {
-            // Parse options
+            if(args.length < 1 || args.length > 2 || isValidItemType(args[1])) {
+                handleBadCommand(msg, "price", args);
+            } else {
+                console.log('okay');
+            }
             // If valid, query sales and buys for items that match item and type
             // PM lists to asker
         }
@@ -70,7 +81,7 @@ var commands = {
         description: "returns the amount of time since the bot started",
         process: function (bot, msg, suffix) {
             var now = Date.now();
-            var msec = now - startTime;
+            var msec = now - bot.startTime;
             console.log("Uptime is " + msec + " milliseconds");
             var days = Math.floor(msec / 1000 / 60 / 60 / 24);
             msec -= days * 1000 * 60 * 60 * 24;
@@ -84,7 +95,7 @@ var commands = {
             timestr += hours > 0 ? hours + " hours " : "";
             timestr += mins > 0 ? mins + " minutes " : "";
             timestr += secs > 0 ? secs + " seconds " : "";
-            msg.channel.sendMessage("Uptime: " + timestr);
+            msg.channel.sendMessage("Uptime: " + timestr).then(function(message) { message.delete(10000)}); 
         }
     },
     "confirm" : {
