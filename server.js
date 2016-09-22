@@ -2,18 +2,9 @@ var Discord = require("discord.js");
 var bot = new Discord.Client();
 var AuthDetails = require("./auth.json");
 var Config = require("./config.json");
-var MongoClient = require('mongodb').MongoClient;
-var mongoUrl = AuthDetails.mongoUrl;
 var Commands = require('./commands.js');
 
 bot.on('ready', function() {
-    MongoClient.connect(mongoUrl, function(err, db) {
-        if(err) {
-            console.log(err);
-        } else {
-
-        }
-    });
     console.log('I am ready');
     console.log(bot.user);
     console.log("Ready to begin! Serving in " + bot.channels.length + " channels");
@@ -35,8 +26,8 @@ function checkMessageForCommand(msg) {
                 var cmdName2 = args.split(" ")[0].toLowerCase();
                 var commandToInterpret = Commands[cmdName2];
                 if(commandToInterpret) {
-                    info += "Additional information for !" + cmdName2 + "\n";
-                    info += "Usage: !" + cmdName2 + " " + commandToInterpret.usage + "\n";
+                    info += "Additional information for " + Config.CommandPrefix + cmdName2 + "\n";
+                    info += "Usage: " + Config.CommandPrefix + cmdName2 + " " + commandToInterpret.usage + "\n";
                     info += "Description:\n" + commandToInterpret.description;
                     msg.author.sendMessage(info);
                 } 

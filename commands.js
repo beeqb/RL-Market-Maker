@@ -1,9 +1,19 @@
 var Config = require('./config.json');
 var _ = require('lodash');
+var AuthDetails = require('./auth.json');
+var MongoClient = require('mongodb').MongoClient;
+var mongoUrl = AuthDetails.mongoUrl;
 
 var VALID_ITEM_TYPES = ['Decal', 'Wheels', 'Body', 'Topper', 'Antenna', 'Boost'];
 var VALID_PRICE = ['Keys', 'CC1', 'CC2'];
 
+MongoClient.connect(mongoUrl, function(err, db) {
+    if(err) {
+        console.log(err);
+    } else {
+        console.log('Mongo connected!');
+    }
+});
 
 var commands = {
     "sell" : {
