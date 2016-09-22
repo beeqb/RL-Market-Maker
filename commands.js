@@ -41,17 +41,32 @@ var commands = {
         "!sell Dominus GT, Body, 3 CC1",
         process: function (bot, msg, args) {
             // Parse options
-            const argsAsArray = getArgsAsArrayAndCheck(args, 3);
-            if (!argsAsArray) {
-                // Send unexpected command message
+            if (!check(args, 3)) {
+              handleBadCommand(msg, 'sell', args);
+              return;
             }
 
-            const [item, itemType, askingPrice, ...modifiers] = argsAsArray;
+            const [item, itemType, askingPrice, ...modifiers] = args;
+            if (!isValidItemType(itemType) || !isValidPrice(askingPrice)) {
+            	handleBadCommand(msg, 'sell', args);
+            	return;
+            }
 
-            const isValidSale = isValidItemType(itemType) && isValidPrice(askingPrice);
-
-
+            const {priceNum, priceType} = getPriceObject(askingPrice);
+           
             // If valid, add to selling registry
+            const entry = {
+              item,
+              itemType,
+              priceNum,
+              priceType,
+              modifiers,
+              author: msg.author.id,
+              username: msg.author.username,
+              descriminator: msg.author.descriminator
+            };
+
+            sells.insert(entry);
         }
     },
     "buy": {
@@ -187,12 +202,21 @@ function getArgsAsArrayAndCheck(args, min, max) {
     return argsAsArray;
 }
 
-function isValidItemType(itemType) {
-    return _.includes(VALID_ITEM_TYPES, itemType);
+function check(args, min, max) {
+	return (min == null || args.length >= min) && (max == null || args.length <= max);
 }
 
-function isValidPrice(price) {
-    return _.includes(VALID_PRICE, price);
+function isValidItemType(itemType) {
+  return _.includes(VALID_ITEM_TYPES, itemType);
+}
+
+function getPriceObject(rawPriceArg) {
+  const priceParts = _.split(rawPriceArg, " ");
+  return {priceNum: priceParts[0], priceType: priceParts[1]}; 
+}
+
+function isValidPrice(rawPriceArg) {
+  return /[1-9][0-9]* (?:keys|cc1|cc2)/.test(rawPriceArg);
 }
 
 module.exports = commands;
