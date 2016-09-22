@@ -3,15 +3,17 @@ var _ = require('lodash');
 var AuthDetails = require('./auth.json');
 var MongoClient = require('mongodb').MongoClient;
 var mongoUrl = AuthDetails.mongoUrl;
+var db = null;
 
 var VALID_ITEM_TYPES = ['decal', 'wheels', 'body', 'topper', 'antenna', 'boost'];
 var VALID_PRICE = ['keys', 'cc1', 'cc2'];
 
-MongoClient.connect(mongoUrl, function(err, db) {
+MongoClient.connect(mongoUrl, function(err, dbconnected) {
     if(err) {
         console.log(err);
     } else {
         console.log('Mongo connected!');
+        db = dbconnected;
     }
 });
 
@@ -72,6 +74,7 @@ var commands = {
             } else {
                 console.log('okay');
             }
+            MongoClient
             // If valid, query sales and buys for items that match item and type
             // PM lists to asker
         }
