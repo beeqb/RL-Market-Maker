@@ -7,7 +7,7 @@ var db = null;
 var buys = null;
 var sells = null;
 
-var VALID_ITEM_TYPES = ['decal', 'wheels', 'body', 'topper', 'antenna', 'boost'];
+var VALID_ITEM_TYPES = ['crate', 'decal', 'wheels', 'body', 'topper', 'antenna', 'boost'];
 var VALID_PRICE = ['keys', 'cc1', 'cc2'];
 
 MongoClient.connect(mongoUrl, function (err, dbconnected) {
@@ -21,85 +21,146 @@ MongoClient.connect(mongoUrl, function (err, dbconnected) {
     }
 });
 
-function handleBadCommand(msg, cmdName, args) {
-    msg.channel.sendMessage("Sorry, your arguments (" + args + ") to " + cmdName + " were not valid. Type !help " + cmdName + " for more info.")
-        .then(function (message) {
-            message.delete(10000);
-        });
+function checkIfEntriesAreExpired() {
+    sells.findAndRemove({ expirationTime: { $gt: Date.now() } });
+    buys.findAndRemove({ expirationTime: { $gt: Date.now() } });
+}
+
+function checkIfSellerHasBuyers(entry, id) {
+    buys.find({ priceNum: { $gt: entry.priceNum }, priceType: entry.priceType }).toArray(function (err, buyers) {
+        if (buyers && buyers.length > 0) {
+            var message = "Here are the buyers potentially willing to purchase your item:\n" + turnArrayIntoString("buy", buyers);
+            bot.users.get(id).sendMessage(message);
+        }
+    });
+}
+
+function checkIfBuyerHasSellers(entry, msg) {
+    sells.find({ priceNum: { $lt: entry.priceNum }, priceType: entry.priceType }).toArray(function (err, sellers) {
+        if (sellers && sellers.length > 0) {
+            var message = "Here are the sellers offering the item you seek:\n" + turnArrayIntoString("sell", sellers);
+            bot.users.get(id).sendMessage(message);
+        }
+    });
+}
+
+function turnArrayIntoString(type, arr) {
+    var retval = "";
+    for (var i = 0; i < arr.length; i++) {
+        var c = arr[i];
+        retval += "\tUsername: " + c.username + "#" + c.discriminator + (type === "buy" ? " will pay " : " wants ") + c.priceNum + " " + c.priceType + " for a " + c.item + 
+            (c.modifiers.length > 0 ? (" with modifiers: " + c.modifiers) : "") + "\n";
+    }
+    return retval;
 }
 
 var commands = {
     "sell": {
-        usage: "<item>, <item type>, <asking price>, [OPTIONAL] <comma-separated item modifiers>",
+        usage: "<count>, <item>, <asking price>, [OPTIONAL] <comma-separated item modifiers>",
         description: "Puts an item for sale. Sale offer expires in " + Config.expiryString + ".\n" +
-        "Use the base item name for the <item> field.\n" +
-        `Item type is one of ${VALID_ITEM_TYPES}\n` +
-        "The asking price must be either Keys, CC1, CC2.\n" +
-        "Item modifiers are colors & certifications (not strictly enforced).\n" +
-        "Example commands:\n" +
-        "!sell Looper, Wheels, 10 Keys, Lime, Certified Juggler\n" +
-        "!sell Dominus GT, Body, 3 CC1",
+        "<count> is the number of items for sale\n" +
+        "<item> is the item name in Rocket League (for example, Merc: Narwhal, Looper, cc1)\n" +
+        "<asking price> must be either Keys, CC1, or CC2 (for example, 1 Key or 2 CC2).\n" +
+        "<item modifiers> are colors & certifications (for example, 'Certified Juggler, Lime' is a valid modifier).\n",
         process: function (bot, msg, args) {
             // Parse options
-            if (!check(args, 3)) {
-              handleBadCommand(msg, 'sell', args);
-              return;
+            if (!check(args, 4)) {
+                handleBadCommand(msg, 'sell', args);
+                return;
             }
 
-            const [item, itemType, askingPrice, ...modifiers] = args;
-            if (!isValidItemType(itemType) || !isValidPrice(askingPrice)) {
-            	handleBadCommand(msg, 'sell', args);
-            	return;
+            const [count, item, askingPrice, ...modifiers] = args;
+            if (!isValidPrice(askingPrice)) {
+                handleBadCommand(msg, 'sell', args);
+                return;
             }
 
-            const {priceNum, priceType} = getPriceObject(askingPrice);
-           
-            // If valid, add to selling registry
-            const entry = {
-              item,
-              itemType,
-              priceNum,
-              priceType,
-              modifiers,
-              author: msg.author.id,
-              username: msg.author.username,
-              descriminator: msg.author.descriminator
+            var {priceNum, priceType} = getPriceObject(askingPrice);
+            var saleId = 'xxxxxx'.replace(/[x]/g, function (c) {
+                var r = Math.random() * 10 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(10);
+            });
+            var entry = {
+                saleId: saleId,
+                count: count,
+                item: item,
+                priceNum: priceNum,
+                priceType: priceType,
+                modifiers: modifiers,
+                expirationTime: Date.now() + Config.expiryTime,
+                author: msg.author.id,
+                username: msg.author.username,
+                discriminator: msg.author.discriminator
             };
 
-            sells.insert(entry);
+            sells.insert(entry).then(function(added) {
+                checkIfEntriesAreExpired();
+                checkIfSellerHasBuyers(entry, msg);
+                msg.channel.sendMessage("Sell order " + saleId + " noted. Buyers will be given your username if they put in a buy order at or above your price.");
+            });
         }
     },
     "buy": {
-        usage: "<item>, <item type>, <buying price>, [OPTIONAL] <comma-separated item modifiers>",
+        usage: "<item>, <buying price>, [OPTIONAL] <comma-separated item modifiers>",
         description: "Puts in an order to buy an item for sale.\n" +
         "The bot will PM you a list of items currently for sale of the item you wish to buy\n" +
         "Use the base item name for the <item> field (e.g. 'Looper')\n" +
-        "Item type is one of [Decal, Wheels, Body, Topper, Antenna, Boost]\n" +
+        "Item type is one of ${VALID_ITEM_TYPES}\n" +
         "Price must be either Keys, CC1 or CC2.\n" +
         "Item modifiers are colors & certifications (not strictly enforced).\n",
         process: function (bot, msg, args) {
-            // Parse options
-            // If valid, query for items that match the item, item type and optional modifier combo and sort by price.
-            // If some have a lower or equal price, send the list of for sale items to buyer
-            // Also, send items over their price & items with different modifiers 
+            if (!check(args, 3)) {
+                handleBadCommand(msg, 'buy', args);
+                return;
+            }
+
+            const [item, askingPrice, ...modifiers] = args;
+            if (!isValidPrice(askingPrice)) {
+                handleBadCommand(msg, 'buy', args);
+                return;
+            }
+
+            const {priceNum, priceType} = getPriceObject(askingPrice);
+
+            const buyId = 'xxxxxx'.replace(/[x]/g, function (c) {
+                var r = Math.random() * 10 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(10);
+            });
+
+            const entry = {
+                buyId: buyId,
+                item: item,
+                priceNum: priceNum,
+                priceType: priceType,
+                modifiers: modifiers,
+                expirationTime: Date.now() + Config.expiryTime,
+                author: msg.author.id,
+                username: msg.author.username,
+                discriminator: msg.author.discriminator
+            };
+
+            buys.insert(entry).then(function(err, itemadded) {
+                if(err) {
+                    msg.channel.sendMessage('Oops, something went wrong on my end. Please try again!');
+                } else {
+                    checkIfEntriesAreExpired();
+                    checkIfBuyerHasSellers(entry, msg);
+                    msg.channel.sendMessage("Purchase order " + buyId + " noted. Sellers will be given your username if they offer this item at or below your price.");
+                }
+            });
         }
     },
     "price": {
-        usage: "<item>, <item type>",
-        description: "Lists all items for sale & purchase orders that match the <item> and <item type>",
+        usage: "<item>",
+        description: "Lists all items for sale & purchase orders that match the <item>",
         process: function (bot, msg, args) {
-            if (args.length < 1 || args.length > 2 || isValidItemType(args[1])) {
+            if (args.length !== 1) {
                 handleBadCommand(msg, "price", args);
             } else {
-                var query = { expirationTime: { $lt: Date.now() } };
-                if (args.length === 1) {
-                    query.item = args[0];
-                } else {
-                    query.item = args[0];
-                    query.itemType = args[1];
-                }
-                buys.find(query).sort({ price: -1 }).toArray(function (err, buyers) {
-                    sells.find(query).sort({ price: 1 }).toArray(function (err2, sellers) {
+                var query = { expirationTime: { $gt: Date.now() } };
+                query.item = args[0];
+                buys.find(query).sort({ price: -1 }).toArray(function (err,buyers) {
+                    sells.find(query).sort({ price: 1 }).toArray(function (err,sellers) {
                         var info = "";
                         if (buyers.length === 0) {
                             info += "Nobody is currently buying " + args[0] + "\n";
@@ -127,11 +188,10 @@ var commands = {
     },
     "uptime": {
         usage: "",
-        description: "returns the amount of time since the bot started",
+        description: "The amount of time since the bot last booted",
         process: function (bot, msg, suffix) {
             var now = Date.now();
             var msec = now - bot.startTime;
-            console.log("Uptime is " + msec + " milliseconds");
             var days = Math.floor(msec / 1000 / 60 / 60 / 24);
             msec -= days * 1000 * 60 * 60 * 24;
             var hours = Math.floor(msec / 1000 / 60 / 60);
@@ -147,44 +207,91 @@ var commands = {
             msg.channel.sendMessage("Uptime: " + timestr).then(function (message) { message.delete(10000) });
         }
     },
-    "confirm": {
-        usage: "<sale ID>, <buyer>",
-        description: "Confirms a sale of an item to a purchaser and removes it from the market",
+    "decrement": {
+        usage: "<sale ID>",
+        description: "Decrement the number of one particular item you put up for sale from the market.\n",
         process: function (bot, msg, args) {
-            // Check that sale ID is valid and the messenger owns the sale
-            // If so, remove the sale and credit the buyer & seller with a confirmed transaction
+            sells.findOne({ saleId: args[0], author: msg.author.id }).then(function (salesOrder) {
+                if (salesOrder) {
+                    if (salesOrder.count === 1) {
+                        sells.remove({ saleId: args[0] }).then(function (rem) {
+                            msg.channel.sendMessage('You had only one ' + salesOrder.item + ' left for sale, so the sales order was removed.');
+                        })
+                    } else {
+                        salesOrder.count = salesOrder.count - 1;
+                        sells.update({saleId:args[0]}, {$set: {count:salesOrder.count}}).then(function(rem) {
+                            msg.channel.sendMessage('You now only have ' + salesOrder.count + ' ' + salesOrder.item + (salesOrder.count > 1 ? "s" : "") + ' for sale.');
+                        })
+                    }
+                } else {
+                    msg.channel.sendMessage('Oops, something went wrong. You likely typed in the wrong sale ID. Check your items for sale with !mysales then try again.');
+                }
+            });
+
         }
     },
     "unsell": {
         usage: "<sale ID>",
-        description: "Remove an item you put up for sale from the market.\n" +
-        "You can get the sale IDs from items you have up for sale with !mySales",
+        description: "Remove an item you put up for sale from the market.\n",
         process: function (bot, msg, args) {
-            // Check that the sale ID is valid and the messenger owns the sale
-            // If so, remove the sale
+            sells.findAndRemove({ saleId: args[0], author: msg.author.id }).then(function (removed) {
+                if (!removed || !removed.value) {
+                    msg.channel.sendMessage('Oops, something went wrong. You likely typed in the wrong sale ID. Check your items for sale with !mysales then try again.');
+                } else {
+                    msg.channel.sendMessage('Item removed!');
+                }
+            });
         }
     },
     "unbuy": {
-        usage: "<sale ID>",
-        description: "Remove an item you put up for sale from the market.\n" +
-        "You can get the sale IDs from items you have up for sale with !mySales",
-        process: function (bot, msg, args) {
-            // Check that the sale ID is valid and the messenger owns the sale
-            // If so, remove the sale
+        usage: "<buy ID>",
+        description: "Remove an buy order of yours from the market.\n",
+        process: function(bot, msg, args) {
+            buys.findAndRemove({ buyId: args[0], author: msg.author.id }).then(function (removed) {
+                 if (!removed || !removed.value) {
+                    msg.channel.sendMessage('Oops, something went wrong. You likely typed in the wrong buy ID. Check your items for sale with !mybuys then try again.');
+                } else {
+                    msg.channel.sendMessage('Purchase order removed!');
+                }
+            });
         }
     },
-    "myBuys": {
+    "mybuys": {
         usage: "",
-        description: "Lists all outstanding purchase orders created by you.",
+        description: "Lists all purchase orders created by you.",
         process: function (bot, msg) {
-            // Send list of all purchase orders with buyer ID matching messenger
+            checkIfEntriesAreExpired();
+            buys.find({ author: msg.author.id }).toArray(function (err, buylist) {
+                if (buylist.length === 0) {
+                    msg.author.sendMessage('You have no purchase orders in the system.');
+                } else {
+                    var message = "Here are your purchase orders: \n";
+                    for (var i = 0; i < buylist.length; i++) {
+                        var c = buylist[i];
+                        message += "\tID: " + c.buyId + ", " + c.item + (c.modifiers.length > 0 ? " with modifiers " + c.modifiers : "") + " for " + c.priceNum + " " + c.priceType + "\n";
+                    }
+                    msg.author.sendMessage(message);
+                }
+            });
         }
     },
-    "mySells": {
+    "mysales": {
         usage: "",
-        description: "Lists all outstanding items for sale by you.",
+        description: "Lists all items for sale by you.",
         process: function (bot, msg) {
-            // Send list of all sales orders with seller ID matching messenger
+            checkIfEntriesAreExpired();
+            sells.find({ author: msg.author.id }).toArray(function (err, selllist) {
+                if (selllist.length === 0) {
+                    msg.author.sendMessage('You have no items for sale in the system.');
+                } else {
+                    var message = "Here are your items for sale: \n";
+                    for (var i = 0; i < selllist.length; i++) {
+                        var c = selllist[i];
+                        message += "\tID: " + c.saleId + ", " + c.count + " " + c.item + (c.count > 1 ? "s" : "") + (c.modifiers.length > 0 ? " with modifiers " + c.modifiers : "") + " for " + c.priceNum + " " + c.priceType + "\n";
+                    }
+                    msg.author.sendMessage(message);
+                }
+            });
         }
     }
 }
@@ -203,20 +310,23 @@ function getArgsAsArrayAndCheck(args, min, max) {
 }
 
 function check(args, min, max) {
-	return (min == null || args.length >= min) && (max == null || args.length <= max);
-}
-
-function isValidItemType(itemType) {
-  return _.includes(VALID_ITEM_TYPES, itemType);
+    return (min == null || args.length >= min) && (max == null || args.length <= max);
 }
 
 function getPriceObject(rawPriceArg) {
-  const priceParts = _.split(rawPriceArg, " ");
-  return {priceNum: priceParts[0], priceType: priceParts[1]}; 
+    const priceParts = _.split(rawPriceArg, " ");
+    return { priceNum: priceParts[0], priceType: priceParts[1] };
 }
 
 function isValidPrice(rawPriceArg) {
-  return /[1-9][0-9]* (?:keys|cc1|cc2)/.test(rawPriceArg);
+    return /[1-9][0-9]* (?:keys|cc1|cc2)/.test(rawPriceArg);
+}
+
+function handleBadCommand(msg, cmdName, args) {
+    msg.channel.sendMessage("Sorry, your arguments (" + args + ") to " + cmdName + " were not valid. Type !help " + cmdName + " for more info.")
+        .then(function (message) {
+            message.delete(10000);
+        });
 }
 
 module.exports = commands;
