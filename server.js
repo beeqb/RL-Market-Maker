@@ -34,7 +34,7 @@ function checkMessageForCommand(msg) {
                     info += "Additional information for **" + Config.CommandPrefix + cmdName2 + "**\n";
                     info += "**Usage:** " + Config.CommandPrefix + cmdName2 + " " + commandToInterpret.usage + "\n";
                     info += "**Description:**\n" + commandToInterpret.description;
-                    msg.author.sendMessage(info).then(function(message) {message.delete(30000);});
+                    msg.channel.sendMessage(info).then(function(message) {message.delete(30000);});
                 } else {
                     msg.channel.sendMessage(cmdName2 + " is not a valid command. Type **!help** to see the command list")
                                 .then(function(message) { message.delete(10000) });
@@ -50,8 +50,6 @@ function checkMessageForCommand(msg) {
         } else if(cmd) {
             console.log('Executing ' + cmdName + ' with args ' + args);
             cmd.process(bot, msg, args);
-        } else {
-            msg.channel.sendMessage("**" + cmdName + "** is not a known command. :(").then(function(message) {message.delete(5000);});
         }
     }
 }
