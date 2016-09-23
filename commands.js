@@ -77,7 +77,7 @@ function turnArrayIntoString(type, arr) {
 var commands = {
     "sell": {
         usage: "<count> <item> @ <asking price>",
-        description: "Puts an item for sale. Sale offer expires in " + Config.expiryString + ".\n" +
+        description: "Puts an item for sale. Sale offers expire in **" + Config.expiryString + "**.\n" +
         "<count> is the number of items for sale\n" +
         "<item> is the item name in Rocket League (for example, Merc: Narwhal, Looper, cc1)\n" +
         "<asking price> must be either Keys, CC1, or CC2 (for example, 1 Key or 2 CC2).\n" +
@@ -131,7 +131,7 @@ var commands = {
     },
     "buy": {
         usage: "<count> <item> @ <buying price>",
-        description: "Puts in an order to buy an item for sale.\n" +
+        description: "Puts in an purchase order for an item. Purchase orders expire in **" + Config.expiryString + "**.\n" +
         "<item> is the base item name (e.g. 'Looper')\n" +
         "<buying price> must be either Keys, CC1 or CC2.\n" +
         "Item modifiers are colors & certifications.\n",
