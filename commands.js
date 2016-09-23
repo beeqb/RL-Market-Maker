@@ -7,7 +7,6 @@ var db = null;
 var buys = null;
 var sells = null;
 
-var VALID_ITEM_TYPES = ['crate', 'decal', 'wheels', 'body', 'topper', 'antenna', 'boost'];
 var VALID_PRICE = ['keys', 'cc1', 'cc2'];
 
 MongoClient.connect(mongoUrl, function (err, dbconnected) {
@@ -22,20 +21,27 @@ MongoClient.connect(mongoUrl, function (err, dbconnected) {
 });
 
 function checkIfEntriesAreExpired() {
-    sells.findAndRemove({ expirationTime: { $gt: Date.now() } });
-    buys.findAndRemove({ expirationTime: { $gt: Date.now() } });
+    sells.findAndRemove({ expirationTime: { $lt: Date.now() } }).then(function(removed) {
+        console.log(removed);
+        console.log('removed sales orders');
+    });
+    buys.findAndRemove({ expirationTime: { $lt: Date.now() } }).then(function(removed) {
+        console.log(removed);
+        console.log('removed purchase orders');
+    });
 }
 
-function checkIfSellerHasBuyers(entry, id) {
+function checkIfSellerHasBuyers(bot, entry, id) {
     buys.find({ priceNum: { $gt: entry.priceNum }, priceType: entry.priceType }).toArray(function (err, buyers) {
         if (buyers && buyers.length > 0) {
             var message = "Here are the buyers potentially willing to purchase your item:\n" + turnArrayIntoString("buy", buyers);
+            console.log(id);
             bot.users.get(id).sendMessage(message);
         }
     });
 }
 
-function checkIfBuyerHasSellers(entry, msg) {
+function checkIfBuyerHasSellers(bot, entry, msg) {
     sells.find({ priceNum: { $lt: entry.priceNum }, priceType: entry.priceType }).toArray(function (err, sellers) {
         if (sellers && sellers.length > 0) {
             var message = "Here are the sellers offering the item you seek:\n" + turnArrayIntoString("sell", sellers);
@@ -64,7 +70,7 @@ var commands = {
         "<item modifiers> are colors & certifications (for example, 'Certified Juggler, Lime' is a valid modifier).\n",
         process: function (bot, msg, args) {
             // Parse options
-            if (!check(args, 4)) {
+            if (!check(args, 3)) {
                 handleBadCommand(msg, 'sell', args);
                 return;
             }
@@ -76,7 +82,7 @@ var commands = {
             }
 
             var {priceNum, priceType} = getPriceObject(askingPrice);
-            var saleId = 'xxxxxx'.replace(/[x]/g, function (c) {
+            var saleId = 'xxxxx'.replace(/[x]/g, function (c) {
                 var r = Math.random() * 10 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
                 return v.toString(10);
             });
@@ -94,8 +100,9 @@ var commands = {
             };
 
             sells.insert(entry).then(function(added) {
+                console.log(added);
                 checkIfEntriesAreExpired();
-                checkIfSellerHasBuyers(entry, msg);
+                checkIfSellerHasBuyers(bot, entry, msg.author.id);
                 msg.channel.sendMessage("Sell order " + saleId + " noted. Buyers will be given your username if they put in a buy order at or above your price.");
             });
         }
@@ -103,13 +110,11 @@ var commands = {
     "buy": {
         usage: "<item>, <buying price>, [OPTIONAL] <comma-separated item modifiers>",
         description: "Puts in an order to buy an item for sale.\n" +
-        "The bot will PM you a list of items currently for sale of the item you wish to buy\n" +
-        "Use the base item name for the <item> field (e.g. 'Looper')\n" +
-        "Item type is one of ${VALID_ITEM_TYPES}\n" +
-        "Price must be either Keys, CC1 or CC2.\n" +
-        "Item modifiers are colors & certifications (not strictly enforced).\n",
+        "<item> is the base item name (e.g. 'Looper')\n" +
+        "<buying price> must be either Keys, CC1 or CC2.\n" +
+        "Item modifiers are colors & certifications.\n",
         process: function (bot, msg, args) {
-            if (!check(args, 3)) {
+            if (!check(args, 2)) {
                 handleBadCommand(msg, 'buy', args);
                 return;
             }
@@ -122,7 +127,7 @@ var commands = {
 
             const {priceNum, priceType} = getPriceObject(askingPrice);
 
-            const buyId = 'xxxxxx'.replace(/[x]/g, function (c) {
+            const buyId = 'xxxxx'.replace(/[x]/g, function (c) {
                 var r = Math.random() * 10 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
                 return v.toString(10);
             });
@@ -139,14 +144,10 @@ var commands = {
                 discriminator: msg.author.discriminator
             };
 
-            buys.insert(entry).then(function(err, itemadded) {
-                if(err) {
-                    msg.channel.sendMessage('Oops, something went wrong on my end. Please try again!');
-                } else {
-                    checkIfEntriesAreExpired();
-                    checkIfBuyerHasSellers(entry, msg);
-                    msg.channel.sendMessage("Purchase order " + buyId + " noted. Sellers will be given your username if they offer this item at or below your price.");
-                }
+            buys.insert(entry).then(function(itemadded) {
+                checkIfEntriesAreExpired();
+                checkIfBuyerHasSellers(bot, entry, msg.author.id);
+                msg.channel.sendMessage("Purchase order " + buyId + " noted. Sellers will be given your username if they offer this item at or below your price.");
             });
         }
     },
@@ -180,7 +181,7 @@ var commands = {
                                 info += c.username + "#" + c.discriminator + ": " + c.priceNum + " " + c.priceType + " for " + c.item + " " + c.itemType + " " + c.modifiers;
                             }
                         }
-                        msg.author.sendMessage(info);
+                        msg.channel.sendMessage(info);
                     });
                 });
             }
@@ -263,14 +264,14 @@ var commands = {
             checkIfEntriesAreExpired();
             buys.find({ author: msg.author.id }).toArray(function (err, buylist) {
                 if (buylist.length === 0) {
-                    msg.author.sendMessage('You have no purchase orders in the system.');
+                    msg.channel.sendMessage('You have no purchase orders in the system.');
                 } else {
                     var message = "Here are your purchase orders: \n";
                     for (var i = 0; i < buylist.length; i++) {
                         var c = buylist[i];
                         message += "\tID: " + c.buyId + ", " + c.item + (c.modifiers.length > 0 ? " with modifiers " + c.modifiers : "") + " for " + c.priceNum + " " + c.priceType + "\n";
                     }
-                    msg.author.sendMessage(message);
+                    msg.channel.sendMessage(message);
                 }
             });
         }
@@ -282,14 +283,14 @@ var commands = {
             checkIfEntriesAreExpired();
             sells.find({ author: msg.author.id }).toArray(function (err, selllist) {
                 if (selllist.length === 0) {
-                    msg.author.sendMessage('You have no items for sale in the system.');
+                    msg.channel.sendMessage('You have no items for sale in the system.');
                 } else {
                     var message = "Here are your items for sale: \n";
                     for (var i = 0; i < selllist.length; i++) {
                         var c = selllist[i];
                         message += "\tID: " + c.saleId + ", " + c.count + " " + c.item + (c.count > 1 ? "s" : "") + (c.modifiers.length > 0 ? " with modifiers " + c.modifiers : "") + " for " + c.priceNum + " " + c.priceType + "\n";
                     }
-                    msg.author.sendMessage(message);
+                    msg.channel.sendMessage(message);
                 }
             });
         }
@@ -314,12 +315,13 @@ function check(args, min, max) {
 }
 
 function getPriceObject(rawPriceArg) {
-    const priceParts = _.split(rawPriceArg, " ");
+    var priceParts = _.split(rawPriceArg, " ");
+    if(priceParts[1] === "key") {priceParts[1] = "keys"}
     return { priceNum: priceParts[0], priceType: priceParts[1] };
 }
 
 function isValidPrice(rawPriceArg) {
-    return /[1-9][0-9]* (?:keys|cc1|cc2)/.test(rawPriceArg);
+    return /[1-9][0-9]* (?:keys|key|cc1|cc2)/.test(rawPriceArg);
 }
 
 function handleBadCommand(msg, cmdName, args) {

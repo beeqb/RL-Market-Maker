@@ -5,9 +5,7 @@ var Config = require("./config.json");
 var Commands = require('./commands.js');
 
 bot.on('ready', function() {
-    console.log('I am ready');
-    console.log(bot.user);
-    console.log("Ready to begin! Serving in " + bot.channels.length + " channels");
+    console.log("Ready to begin!");
     bot.startTime = Date.now();
     bot.user.setStatus("online",Config.CommandPrefix+"help");
 });
@@ -36,7 +34,7 @@ function checkMessageForCommand(msg) {
                     info += "Additional information for " + Config.CommandPrefix + cmdName2 + "\n";
                     info += "Usage: " + Config.CommandPrefix + cmdName2 + " " + commandToInterpret.usage + "\n";
                     info += "Description:\n" + commandToInterpret.description;
-                    msg.author.sendMessage(info);
+                    msg.author.sendMessage(info).then(function(message) {message.delete(30000);});
                 } else {
                     msg.channel.sendMessage(cmdName2 + " is not a valid command. Type !help to see the command list")
                                 .then(function(message) { message.delete(10000) });
@@ -47,7 +45,7 @@ function checkMessageForCommand(msg) {
                     info += Config.CommandPrefix + c + " " + Commands[c].usage + "\n";
                 }
                 info += "For more detail on any of these commands, type !help <commandname>\n";
-                msg.author.sendMessage(info);
+                msg.channel.sendMessage(info).then(function(message) { message.delete(30000);});
             }
         } else if(cmd) {
             console.log('Executing ' + cmdName + ' with args ' + args);
