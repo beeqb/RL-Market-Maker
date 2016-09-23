@@ -7,8 +7,6 @@ var db = null;
 var buys = null;
 var sells = null;
 
-var VALID_PRICE = ['keys', 'cc1', 'cc2'];
-
 MongoClient.connect(mongoUrl, function (err, dbconnected) {
     if (err) {
         console.log(err);
@@ -22,30 +20,47 @@ MongoClient.connect(mongoUrl, function (err, dbconnected) {
 
 function checkIfEntriesAreExpired() {
     sells.findAndRemove({ expirationTime: { $lt: Date.now() } }).then(function(removed) {
-        console.log(removed);
         console.log('removed sales orders');
     });
     buys.findAndRemove({ expirationTime: { $lt: Date.now() } }).then(function(removed) {
-        console.log(removed);
         console.log('removed purchase orders');
     });
 }
 
 function checkIfSellerHasBuyers(bot, entry, id) {
-    buys.find({ priceNum: { $gt: entry.priceNum }, priceType: entry.priceType }).toArray(function (err, buyers) {
+    var query = getQueryForItemsThatMatch(entry.item);
+    query.$and.push({priceNum: {$gte: entry.priceNum}});
+    query.$and.push({priceType: entry.priceNum});
+    query.$and.push({author:{$ne : id}});
+    buys.find(query).toArray(function (err, buyers) {
         if (buyers && buyers.length > 0) {
             var message = "Here are the buyers potentially willing to purchase your item:\n" + turnArrayIntoString("buy", buyers);
-            console.log(id);
-            bot.users.get(id).sendMessage(message);
+            bot.users.get(entry.author).sendMessage(message);
+        }
+        for(var i = 0; i < buyers.length; i++) {
+            var c = buyers[i];
+            var message = "Someone is willing to sell you an item at your price!\n" + 
+            "Username: " + c.username + "#" + c.discriminator + " is offering " + entry.count +  " " + entry.item + " for " + entry.priceNum + " " + entry.priceType + "!";
+            bot.users.get(c.author).sendMessage(message);
         }
     });
 }
 
-function checkIfBuyerHasSellers(bot, entry, msg) {
-    sells.find({ priceNum: { $lt: entry.priceNum }, priceType: entry.priceType }).toArray(function (err, sellers) {
+function checkIfBuyerHasSellers(bot, entry, id) {
+    var query = getQueryForItemsThatMatch(entry.item);
+    query.$and.push({priceNum: {$lte: entry.priceNum}});
+    query.$and.push({priceType: entry.priceNum});
+    query.$and.push({author:{$ne : id}});
+    sells.find(query).toArray(function (err, sellers) {
         if (sellers && sellers.length > 0) {
             var message = "Here are the sellers offering the item you seek:\n" + turnArrayIntoString("sell", sellers);
-            bot.users.get(id).sendMessage(message);
+            bot.users.get(entry.author).sendMessage(message);
+        }
+        for(var i = 0; i < sellers.length; i++) {
+            var c = sellers[i];
+            var message = "Someone is willing to buy your item at your price!\n" + 
+            "Username: " + c.username + "#" + c.discriminator + " wants " + entry.count +  " " + entry.item + " for " + entry.priceNum + " " + entry.priceType + "!";
+            bot.users.get(c.author).sendMessage(message);
         }
     });
 }
@@ -54,15 +69,14 @@ function turnArrayIntoString(type, arr) {
     var retval = "";
     for (var i = 0; i < arr.length; i++) {
         var c = arr[i];
-        retval += "\tUsername: " + c.username + "#" + c.discriminator + (type === "buy" ? " will pay " : " wants ") + c.priceNum + " " + c.priceType + " for a " + c.item + 
-            (c.modifiers.length > 0 ? (" with modifiers: " + c.modifiers) : "") + "\n";
+        retval += "\tUsername: " + c.username + "#" + c.discriminator + (type === "buy" ? " will pay " : " wants ") + c.priceNum + " " + c.priceType + " for a " + c.item.join(" ") + "\n";
     }
     return retval;
 }
 
 var commands = {
     "sell": {
-        usage: "<count>, <item>, <asking price>, [OPTIONAL] <comma-separated item modifiers>",
+        usage: "<count> <item> @ <asking price>",
         description: "Puts an item for sale. Sale offer expires in " + Config.expiryString + ".\n" +
         "<count> is the number of items for sale\n" +
         "<item> is the item name in Rocket League (for example, Merc: Narwhal, Looper, cc1)\n" +
@@ -70,12 +84,21 @@ var commands = {
         "<item modifiers> are colors & certifications (for example, 'Certified Juggler, Lime' is a valid modifier).\n",
         process: function (bot, msg, args) {
             // Parse options
-            if (!check(args, 3)) {
+            if (!check(args, 2)) {
                 handleBadCommand(msg, 'sell', args);
                 return;
             }
 
-            const [count, item, askingPrice, ...modifiers] = args;
+            var count = _.parseInt(args[0].split(" ")[0]);
+            if(_.isFinite(count)) {
+                item = _.tail(args[0].split(" "));
+            } else {
+                count = 1;
+                item = args[0].split(" ");
+            }
+
+            var askingPrice = args[1];
+
             if (!isValidPrice(askingPrice)) {
                 handleBadCommand(msg, 'sell', args);
                 return;
@@ -92,7 +115,6 @@ var commands = {
                 item: item,
                 priceNum: priceNum,
                 priceType: priceType,
-                modifiers: modifiers,
                 expirationTime: Date.now() + Config.expiryTime,
                 author: msg.author.id,
                 username: msg.author.username,
@@ -100,26 +122,36 @@ var commands = {
             };
 
             sells.insert(entry).then(function(added) {
-                console.log(added);
+                console.log('Added sale order');
                 checkIfEntriesAreExpired();
-                checkIfSellerHasBuyers(bot, entry, msg.author.id);
+                checkIfSellerHasBuyers(bot, entry, entry.author);
                 msg.channel.sendMessage("Sell order " + saleId + " noted. Buyers will be given your username if they put in a buy order at or above your price.");
             });
         }
     },
     "buy": {
-        usage: "<item>, <buying price>, [OPTIONAL] <comma-separated item modifiers>",
+        usage: "<count> <item> @ <buying price>",
         description: "Puts in an order to buy an item for sale.\n" +
         "<item> is the base item name (e.g. 'Looper')\n" +
         "<buying price> must be either Keys, CC1 or CC2.\n" +
         "Item modifiers are colors & certifications.\n",
         process: function (bot, msg, args) {
+            // Parse options
             if (!check(args, 2)) {
-                handleBadCommand(msg, 'buy', args);
+                handleBadCommand(msg, 'sell', args);
                 return;
             }
 
-            const [item, askingPrice, ...modifiers] = args;
+            var count = _.parseInt(args[0].split(" ")[0]);
+            if(_.isFinite(count)) {
+                item = _.tail(args[0].split(" "));
+            } else {
+                count = 1;
+                item = args[0].split(" ");
+            }
+
+            var askingPrice = args[1];
+
             if (!isValidPrice(askingPrice)) {
                 handleBadCommand(msg, 'buy', args);
                 return;
@@ -134,10 +166,10 @@ var commands = {
 
             const entry = {
                 buyId: buyId,
+                count: count,
                 item: item,
                 priceNum: priceNum,
                 priceType: priceType,
-                modifiers: modifiers,
                 expirationTime: Date.now() + Config.expiryTime,
                 author: msg.author.id,
                 username: msg.author.username,
@@ -145,40 +177,77 @@ var commands = {
             };
 
             buys.insert(entry).then(function(itemadded) {
+                console.log('Added purchase order');
                 checkIfEntriesAreExpired();
-                checkIfBuyerHasSellers(bot, entry, msg.author.id);
+                checkIfBuyerHasSellers(bot, entry, entry.author);
                 msg.channel.sendMessage("Purchase order " + buyId + " noted. Sellers will be given your username if they offer this item at or below your price.");
             });
         }
     },
+    "itemswanted" : {
+        usage: "",
+        description: "PMs you a list of every item type with a purchase order one the Discord exchange. Use !price <item description> to see who's buying and selling that item.",
+        process: function(bot, msg, args) {
+            buys.find({}).toArray(function(err, buyers) {
+                var items = [];
+                var message = "Here are the items you can ask for a price check on: [";
+                for(var i = 0; i < buyers.length; i++) {
+                    if(!_.includes(items, buyers[i].item.join(" "))) {
+                        items.push(buyers[i].item.join(" "));
+                    }
+                }
+                message += items.join(", ") + "]";
+                msg.author.sendMessage(message);
+            });
+        }
+    },
+    "itemsforsale" : {
+        usage: "",
+        description: "PMs you a list of every item type currently for sale on the Discord exchange. Use !price <item description> to see who's buying and selling that item.",
+        process: function(bot, msg, args) {
+            sells.find({}).toArray(function(err, sellers) {
+                var items = [];
+                var message = "Here are the items you can ask for a price check on: [";
+                for(var i = 0; i < sellers.length; i++) {
+                    if(!_.includes(items, sellers[i].item.join(" "))) {
+                        items.push(sellers[i].item.join(" "));
+                    }
+                }
+                message += items.join(", ") + "]";
+                msg.author.sendMessage(message);
+            });
+        }
+    },
     "price": {
-        usage: "<item>",
-        description: "Lists all items for sale & purchase orders that match the <item>",
+        usage: "<item description>",
+        description: "Lists all items for sale & purchase orders that match each part of the <item description>\n" +
+                     "**PLEASE NOTE:** the bot does not differentiate between pluralization. For example, !price lime loopers is NOT the same as !price lime looper wheels.\n" + 
+                     "\t\t\t\t\t\t\t Use !itemsforsale or !itemswanted to get a full list of items on the market",
         process: function (bot, msg, args) {
             if (args.length !== 1) {
                 handleBadCommand(msg, "price", args);
             } else {
-                var query = { expirationTime: { $gt: Date.now() } };
-                query.item = args[0];
+                var itemarray = args[0].split(" ");
+                var query = getQueryForItemsThatMatch(itemarray);
                 buys.find(query).sort({ price: -1 }).toArray(function (err,buyers) {
-                    sells.find(query).sort({ price: 1 }).toArray(function (err,sellers) {
-                        var info = "";
+                    sells.find(query).sort({ price: 1 }).toArray(function (err2,sellers) {
+                        var info = "Price summary for **" + args[0] + "**\n";
                         if (buyers.length === 0) {
-                            info += "Nobody is currently buying " + args[0] + "\n";
+                            info += "**Nobody** is currently buying **" + args[0] + "**\n";
                         } else {
-                            var info = "Here are the current buyers for " + args[0] + ":\n";
+                            info += "Here are the current buyers for **" + args[0] + "**:\n";
                             for (var i = 0; i < buyers.length; i++) {
                                 var c = buyers[i];
-                                info += c.username + "#" + c.discriminator + ": " + c.priceNum + " " + c.priceType + " for " + c.item + " " + c.itemType + " " + c.modifiers + "\n";
+                                info += "\t**" + c.username + "#" + c.discriminator + "**: wants " + c.count + " " + c.item.join(" ") + " for " + c.priceNum + " " + c.priceType + "\n";
                             }
                         }
                         if (sellers.length === 0) {
-                            info += "Nobody is currently selling " + args[0];
+                            info += "\nNobody is currently selling **" + args[0] + "**";
                         } else {
-                            var info = "Here are the current sellers for " + args[0] + ":\n";
+                            info += "\nHere are the current sellers for **" + args[0] + "**:\n";
                             for (var i = 0; i < sellers.length; i++) {
                                 var c = sellers[i];
-                                info += c.username + "#" + c.discriminator + ": " + c.priceNum + " " + c.priceType + " for " + c.item + " " + c.itemType + " " + c.modifiers;
+                                info += "\t**" + c.username + "#" + c.discriminator + "**: is selling " + c.count + " " + c.item.join(" ") + " for " + c.priceNum + " " + c.priceType + "\n";
                             }
                         }
                         msg.channel.sendMessage(info);
@@ -232,29 +301,41 @@ var commands = {
         }
     },
     "unsell": {
-        usage: "<sale ID>",
-        description: "Remove an item you put up for sale from the market.\n",
+        usage: "<sale ID **or** * >",
+        description: "Remove an item you put up for sale from the market.\nYou may use !unsell * to remove all of your items for sale from the market.",
         process: function (bot, msg, args) {
-            sells.findAndRemove({ saleId: args[0], author: msg.author.id }).then(function (removed) {
-                if (!removed || !removed.value) {
-                    msg.channel.sendMessage('Oops, something went wrong. You likely typed in the wrong sale ID. Check your items for sale with !mysales then try again.');
-                } else {
-                    msg.channel.sendMessage('Item removed!');
-                }
-            });
+            if(args[0] === "*") {
+                sells.remove({author:msg.author.id}).then(function() {
+                    msg.channel.sendMessage('Item(s) removed!');
+               });
+            } else {
+                sells.findAndRemove({ saleId: args[0], author: msg.author.id }).then(function (removed) {
+                    if (!removed || !removed.value) {
+                        msg.channel.sendMessage('Oops, something went wrong. You likely typed in the wrong sale ID. Check your items for sale with !mysales then try again.');
+                    } else {
+                        msg.channel.sendMessage('Item removed!');
+                    }
+                });
+            }
         }
     },
     "unbuy": {
-        usage: "<buy ID>",
-        description: "Remove an buy order of yours from the market.\n",
+        usage: "<buy ID **or** * >",
+        description: "Remove a buy order of yours from the market.\nYou may use !unsell * to remove all of your items for sale from the market.",
         process: function(bot, msg, args) {
-            buys.findAndRemove({ buyId: args[0], author: msg.author.id }).then(function (removed) {
-                 if (!removed || !removed.value) {
-                    msg.channel.sendMessage('Oops, something went wrong. You likely typed in the wrong buy ID. Check your items for sale with !mybuys then try again.');
-                } else {
-                    msg.channel.sendMessage('Purchase order removed!');
-                }
-            });
+            if (args[0] === "*") {
+                buys.remove({ author: msg.author.id }).then(function () {
+                    msg.channel.sendMessage('Item(s) removed!');
+                });
+            } else {
+                buys.findAndRemove({ buyId: args[0], author: msg.author.id }).then(function (removed) {
+                    if (!removed || !removed.value) {
+                        msg.channel.sendMessage('Oops, something went wrong. You likely typed in the wrong buy ID. Check your items for sale with !mybuys then try again.');
+                    } else {
+                        msg.channel.sendMessage('Purchase order removed!');
+                    }
+                });
+            }
         }
     },
     "mybuys": {
@@ -269,7 +350,7 @@ var commands = {
                     var message = "Here are your purchase orders: \n";
                     for (var i = 0; i < buylist.length; i++) {
                         var c = buylist[i];
-                        message += "\tID: " + c.buyId + ", " + c.item + (c.modifiers.length > 0 ? " with modifiers " + c.modifiers : "") + " for " + c.priceNum + " " + c.priceType + "\n";
+                        message += "\tID: " + c.buyId + ", " + c.item.join(" ") + " for " + c.priceNum + " " + c.priceType + "\n";
                     }
                     msg.channel.sendMessage(message);
                 }
@@ -288,13 +369,21 @@ var commands = {
                     var message = "Here are your items for sale: \n";
                     for (var i = 0; i < selllist.length; i++) {
                         var c = selllist[i];
-                        message += "\tID: " + c.saleId + ", " + c.count + " " + c.item + (c.count > 1 ? "s" : "") + (c.modifiers.length > 0 ? " with modifiers " + c.modifiers : "") + " for " + c.priceNum + " " + c.priceType + "\n";
+                        message += "\tID: " + c.saleId + ", " + c.count + " " + c.item.join(" ") + " for " + c.priceNum + " " + c.priceType + "\n";
                     }
                     msg.channel.sendMessage(message);
                 }
             });
         }
     }
+}
+
+function getQueryForItemsThatMatch(itemarray) {
+    var query = {$and: [{expirationTime: { $gt: Date.now()}}]};
+    for(var i = 0; i < itemarray.length; i++) {
+        query.$and.push({'item': {$elemMatch: {$eq: itemarray[i]}}});
+    }
+    return query;
 }
 
 function getArgsAsArray(args) {
@@ -317,15 +406,17 @@ function check(args, min, max) {
 function getPriceObject(rawPriceArg) {
     var priceParts = _.split(rawPriceArg, " ");
     if(priceParts[1] === "key") {priceParts[1] = "keys"}
+    if(priceParts[1] === "cc1s") {priceParts[1] = "cc1"}
+    if(priceParts[1] === "cc2s") {priceParts[1] = "cc2"}
     return { priceNum: priceParts[0], priceType: priceParts[1] };
 }
 
 function isValidPrice(rawPriceArg) {
-    return /[1-9][0-9]* (?:keys|key|cc1|cc2)/.test(rawPriceArg);
+    return /[1-9][0-9]* (?:keys|key|cc1|cc2|cc1s|cc2s)/.test(rawPriceArg);
 }
 
 function handleBadCommand(msg, cmdName, args) {
-    msg.channel.sendMessage("Sorry, your arguments (" + args + ") to " + cmdName + " were not valid. Type !help " + cmdName + " for more info.")
+    msg.channel.sendMessage("Sorry, your arguments (" + args.join(" @ ") + ") to " + cmdName + " were not valid. Type !help " + cmdName + " for more info.")
         .then(function (message) {
             message.delete(10000);
         });
