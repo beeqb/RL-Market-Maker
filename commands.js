@@ -40,7 +40,7 @@ function checkIfSellerHasBuyers(bot, entry, id) {
         for (var i = 0; i < buyers.length; i++) {
             var c = buyers[i];
             var message = "Someone is willing to sell you an item at your price!\n" +
-                "Username: " + c.username + "#" + c.discriminator + " is offering " + entry.count + " " + entry.item + " for " + entry.priceNum + " " + entry.priceType + "!";
+                "Username: " + entry.username + "#" + entry.discriminator + " is offering " + entry.count + " " + entry.item + " for " + entry.priceNum + " " + entry.priceType + "!";
             bot.users.get(c.author).sendMessage(message);
         }
     });
@@ -59,7 +59,7 @@ function checkIfBuyerHasSellers(bot, entry, id) {
         for (var i = 0; i < sellers.length; i++) {
             var c = sellers[i];
             var message = "Someone is willing to buy your item at your price!\n" +
-                "Username: " + c.username + "#" + c.discriminator + " wants " + entry.count + " " + entry.item + " for " + entry.priceNum + " " + entry.priceType + "!";
+                "Username: " + entry.username + "#" + entry.discriminator + " wants " + entry.count + " " + entry.item + " for " + entry.priceNum + " " + entry.priceType + "!";
             bot.users.get(c.author).sendMessage(message);
         }
     });
@@ -81,6 +81,7 @@ var commands = {
         "<count> is the number of items for sale\n" +
         "<item> is the item name in Rocket League (for example, Merc: Narwhal, Looper, cc1)\n" +
         "<asking price> must be either Keys, CC1, or CC2 (for example, 1 Key or 2 CC2).\n" +
+        "__<asking price> is per item.__\n" +
         "<item modifiers> are colors & certifications (for example, 'Certified Juggler, Lime' is a valid modifier).\n",
         process: function (bot, msg, args) {
             if (!msg.guild) {
@@ -139,6 +140,7 @@ var commands = {
         description: "Puts in an purchase order for an item. Purchase orders expire in **" + Config.expiryString + "**.\n" +
         "<item> is the base item name (e.g. 'Looper')\n" +
         "<buying price> must be either Keys, CC1 or CC2.\n" +
+        "__<buying price> is per item.__\n" +
         "Item modifiers are colors & certifications.\n",
         process: function (bot, msg, args) {
             if (!msg.guild) {
@@ -146,7 +148,7 @@ var commands = {
                 return;
             }
             // Parse options
-            if (!check(args, 3)) {
+            if (!check(args, 2)) {
                 handleBadCommand(msg, 'buy', args);
                 return;
             }
@@ -156,7 +158,7 @@ var commands = {
                 item = _.tail(args[0].split(" "));
             } else {
                 count = 1;
-                item = _.tail(args[0].split(" "));
+                item = args[0].split(" ");
             }
 
             var askingPrice = args[1];
@@ -429,8 +431,8 @@ function check(args, min, max) {
 function getPriceObject(rawPriceArg) {
     var priceParts = _.split(rawPriceArg, " ");
     if (priceParts[1] === "key") { priceParts[1] = "keys" }
-    if (priceParts[1] === "cc1s") { priceParts[1] = "cc1" }
-    if (priceParts[1] === "cc2s") { priceParts[1] = "cc2" }
+    if (priceParts[1] === "cc1") { priceParts[1] = "cc1s" }
+    if (priceParts[1] === "cc2") { priceParts[1] = "cc2s" }
     return { priceNum: priceParts[0], priceType: priceParts[1] };
 }
 

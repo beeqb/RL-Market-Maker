@@ -44,7 +44,7 @@ function checkMessageForCommand(msg) {
                 for(var c in Commands) {
                     info += "**" + Config.CommandPrefix + c + "** " + Commands[c].usage + "\n";
                 }
-                info += "For more detail on any of these commands, type **!help <commandname>**\n";
+                info += "For more detail on any of these commands, type **!help <commandname>**\n*(this message will self-delete in 30 seconds)*";
                 msg.channel.sendMessage(info).then(function(message) { message.delete(30000);});
             }
         } else if(cmd) {
